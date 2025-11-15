@@ -1,87 +1,122 @@
 pipeline {
     agent any
     
-    tools {
-        nodejs 'NodeJS 7.8.0' // Має відповідати імені в Global Tool Configuration
+    parameters {
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['main', 'dev'],
+            description: 'Select environment to deploy (main or dev)'
+        )
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'v1.0',
+            description: 'Docker image tag to deploy'
+        )
     }
     
     environment {
-        DOCKER_IMAGE_NAME = "${env.BRANCH_NAME == 'main' ? 'nodemain' : 'nodedev'}"
-        DOCKER_IMAGE_TAG = 'v1.0'
-        APP_PORT = "${env.BRANCH_NAME == 'main' ? '3000' : '3001'}"
-        CONTAINER_NAME = "${env.BRANCH_NAME == 'main' ? 'app-main' : 'app-dev'}"
+        DOCKER_IMAGE_NAME = "${params.ENVIRONMENT == 'main' ? 'nodemain' : 'nodedev'}"
+        APP_PORT = "${params.ENVIRONMENT == 'main' ? '3000' : '3001'}"
+        CONTAINER_NAME = "${params.ENVIRONMENT == 'main' ? 'app-main' : 'app-dev'}"
+        GIT_BRANCH = "${params.ENVIRONMENT == 'main' ? 'main' : 'dev'}"
     }
     
     stages {
-        stage('Checkout') {
-            steps {
-                echo "Checking out ${env.BRANCH_NAME} branch..."
-                checkout scm
-            }
-        }
-        
-        stage('Build') {
-            steps {
-                echo "Building Node.js application..."
-                sh 'npm install'
-            }
-        }
-        
-        stage('Test') {
-            steps {
-                echo "Running tests..."
-                sh 'npm test'
-            }
-        }
-        
-        stage('Build Docker Image') {
+        stage('Validate Parameters') {
             steps {
                 script {
-                    echo "Building Docker image: ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
+                    echo "=== Deployment Configuration ==="
+                    echo "Environment: ${params.ENVIRONMENT}"
+                    echo "Image Tag: ${params.IMAGE_TAG}"
+                    echo "Docker Image: ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}"
+                    echo "Port: ${APP_PORT}"
+                    echo "Container Name: ${CONTAINER_NAME}"
+                    echo "==============================="
+                    
+                    // Перевірка чи існує образ
+                    def imageExists = sh(
+                        script: "docker images -q ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}",
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (!imageExists) {
+                        error("Docker image ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG} does not exist! Please build it first.")
+                    }
+                }
+            }
+        }
+        
+        stage('Stop Previous Deployment') {
+            steps {
+                script {
+                    echo "Stopping previous deployment if exists..."
                     sh """
-                        docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
+                        # Зупинка та видалення старого контейнера
+                        if [ \$(docker ps -aq -f name=${CONTAINER_NAME}) ]; then
+                            echo "Stopping container ${CONTAINER_NAME}..."
+                            docker stop ${CONTAINER_NAME} || true
+                            echo "Removing container ${CONTAINER_NAME}..."
+                            docker rm ${CONTAINER_NAME} || true
+                            echo "Container removed successfully"
+                        else
+                            echo "No previous deployment found"
+                        fi
                     """
                 }
             }
         }
         
-        stage('Deploy') {
+        stage('Deploy Application') {
             steps {
                 script {
-                    echo "Deploying application on port ${APP_PORT}..."
+                    echo "Deploying ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG} on port ${APP_PORT}..."
                     
-                    // Зупинка та видалення старого контейнера якщо він існує
-                    sh """
-                        # Перевірка чи існує контейнер
-                        if [ \$(docker ps -aq -f name=${CONTAINER_NAME}) ]; then
-                            echo "Stopping existing container..."
-                            docker stop ${CONTAINER_NAME} || true
-                            echo "Removing existing container..."
-                            docker rm ${CONTAINER_NAME} || true
-                        fi
-                    """
-                    
-                    // Запуск нового контейнера
-                    if (env.BRANCH_NAME == 'main') {
+                    if (params.ENVIRONMENT == 'main') {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
                                 --expose 3000 \
                                 -p 3000:3000 \
-                                ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+                                --restart unless-stopped \
+                                ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
                         """
-                        echo "Application deployed at http://localhost:3000"
-                    } else if (env.BRANCH_NAME == 'dev') {
+                        echo "✓ Application deployed at http://localhost:3000"
+                    } else if (params.ENVIRONMENT == 'dev') {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
                                 --expose 3001 \
                                 -p 3001:3000 \
-                                ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+                                --restart unless-stopped \
+                                ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
                         """
-                        echo "Application deployed at http://localhost:3001"
+                        echo "✓ Application deployed at http://localhost:3001"
                     }
                     
-                    // Перевірка статусу контейнера
-                    sh "docker ps -f name=${CONTAINER_NAME}"
+                    // Очікування запуску контейнера
+                    sleep(time: 5, unit: 'SECONDS')
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                script {
+                    echo "Performing health check..."
+                    
+                    // Перевірка чи контейнер запущений
+                    def containerStatus = sh(
+                        script: "docker ps -f name=${CONTAINER_NAME} --format '{{.Status}}'",
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (containerStatus) {
+                        echo "✓ Container is running: ${containerStatus}"
+                        
+                        // Показати логи контейнера
+                        echo "Container logs:"
+                        sh "docker logs ${CONTAINER_NAME} --tail 20"
+                    } else {
+                        error("Container failed to start!")
+                    }
                 }
             }
         }
@@ -89,15 +124,25 @@ pipeline {
     
     post {
         success {
-            echo "Pipeline completed successfully for ${env.BRANCH_NAME} branch!"
-            echo "Application is running at http://localhost:${APP_PORT}"
+            echo """
+            ================================================
+            Deployment successful!
+            Environment: ${params.ENVIRONMENT}
+            Image: ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
+            URL: http://localhost:${APP_PORT}
+            Container: ${CONTAINER_NAME}
+            ================================================
+            """
         }
         failure {
-            echo "Pipeline failed for ${env.BRANCH_NAME} branch!"
-        }
-        always {
-            echo "Cleaning up workspace..."
-            cleanWs()
+            echo "Deployment failed for ${params.ENVIRONMENT} environment!"
+            // Спроба показати логи якщо контейнер існує
+            sh """
+                if [ \$(docker ps -aq -f name=${CONTAINER_NAME}) ]; then
+                    echo "Container logs:"
+                    docker logs ${CONTAINER_NAME} || true
+                fi
+            """
         }
     }
 }
