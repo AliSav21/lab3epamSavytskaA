@@ -64,8 +64,8 @@ pipeline {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
                                 --expose 3000 \
-                                -p 3000:8088 \
-				#-p 3000:3000 \
+                                #-p 3000:8088 \
+				-p 3000:3000 \
                                 ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
                         """
                         echo "Application at http://localhost:3000"
@@ -73,8 +73,8 @@ pipeline {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
                                 --expose 3001 \
-                                -p 3001:8088 \ 
-                                #-p 3001:3000 \
+                                #-p 3001:8088 \ 
+                                -p 3001:3000 \
                                 ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
                         """
                         echo "Application at http://localhost:3001"
