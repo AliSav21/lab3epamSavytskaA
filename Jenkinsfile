@@ -84,7 +84,8 @@ pipeline {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
                                 --expose 3001 \
-                                -p 3001:3000 \
+                                -p 3001:8088 \
+                                #-p 3001:3000 \
                                 --restart unless-stopped \
                                 ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
                         """
