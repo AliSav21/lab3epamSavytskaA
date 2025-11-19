@@ -74,9 +74,9 @@ pipeline {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
                                 #--expose 3000 \
-                                -p ${APP_PORT}:8088 \
+                                -p 3001:8088 \
 				#-p 3000:3000 \
-                                #--restart unless-stopped \
+                                --restart unless-stopped \
                                 ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
                         """
                         echo "App deployed at http://localhost:3000"
