@@ -25,13 +25,12 @@ pipeline {
         stage('Validate Parameters') {
             steps {
                 script {
-                    echo "=== Deployment Configuration ==="
+                    echo "Deployment Configuration"
                     echo "Environment: ${params.ENVIRONMENT}"
                     echo "Image Tag: ${params.IMAGE_TAG}"
                     echo "Docker Image: ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}"
                     echo "Port: ${APP_PORT}"
                     echo "Container Name: ${CONTAINER_NAME}"
-                    echo "==============================="
                     
                     // Перевірка чи існує образ
                     def imageExists = sh(
@@ -53,11 +52,11 @@ pipeline {
                     sh """
                         # Зупинка та видалення старого контейнера
                         if [ \$(docker ps -aq -f name=${CONTAINER_NAME}) ]; then
-                            echo "Stopping container ${CONTAINER_NAME}..."
+                            echo "Stop container ${CONTAINER_NAME}"
                             docker stop ${CONTAINER_NAME} || true
-                            echo "Removing container ${CONTAINER_NAME}..."
+                            echo "Remove ${CONTAINER_NAME}"
                             docker rm ${CONTAINER_NAME} || true
-                            echo "Container removed successfully"
+                            echo "Removed successfully"
                         else
                             echo "No previous deployment found"
                         fi
@@ -74,12 +73,13 @@ pipeline {
                     if (params.ENVIRONMENT == 'main') {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
-                                --expose 3000 \
-                                -p 3000:3000 \
-                                --restart unless-stopped \
+                                #--expose 3000 \
+                                -p ${APP_PORT}:8088 \
+				#-p 3000:3000 \
+                                #--restart unless-stopped \
                                 ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
                         """
-                        echo "✓ Application deployed at http://localhost:3000"
+                        echo "App deployed at http://localhost:3000"
                     } else if (params.ENVIRONMENT == 'dev') {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
@@ -88,10 +88,9 @@ pipeline {
                                 --restart unless-stopped \
                                 ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
                         """
-                        echo "✓ Application deployed at http://localhost:3001"
+                        echo "App deployed at http://localhost:3001"
                     }
-                    
-                    // Очікування запуску контейнера
+                                       
                     sleep(time: 5, unit: 'SECONDS')
                 }
             }
@@ -100,7 +99,7 @@ pipeline {
         stage('Health Check') {
             steps {
                 script {
-                    echo "Performing health check..."
+                    echo "Performing health check"
                     
                     // Перевірка чи контейнер запущений
                     def containerStatus = sh(
@@ -109,13 +108,13 @@ pipeline {
                     ).trim()
                     
                     if (containerStatus) {
-                        echo "✓ Container is running: ${containerStatus}"
+                        echo "Container run ${containerStatus}"
                         
-                        // Показати логи контейнера
-                        echo "Container logs:"
+                        // логи контейнера
+                        echo "Logs:"
                         sh "docker logs ${CONTAINER_NAME} --tail 20"
                     } else {
-                        error("Container failed to start!")
+                        error("Container failed to start")
                     }
                 }
             }
@@ -125,18 +124,16 @@ pipeline {
     post {
         success {
             echo """
-            ================================================
-            Deployment successful!
+            Deployment - success
             Environment: ${params.ENVIRONMENT}
             Image: ${DOCKER_IMAGE_NAME}:${params.IMAGE_TAG}
             URL: http://localhost:${APP_PORT}
             Container: ${CONTAINER_NAME}
-            ================================================
             """
         }
         failure {
             echo "Deployment failed for ${params.ENVIRONMENT} environment!"
-            // Спроба показати логи якщо контейнер існує
+            
             sh """
                 if [ \$(docker ps -aq -f name=${CONTAINER_NAME}) ]; then
                     echo "Container logs:"
