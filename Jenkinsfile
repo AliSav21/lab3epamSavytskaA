@@ -63,8 +63,8 @@ pipeline {
                     if (env.BRANCH_NAME == 'main') {
                         sh """
                             docker run -d --name ${CONTAINER_NAME} \
-                                #--expose 3000 \
-                                -p {APP_PORT}:8080
+                                --expose 3000 \
+                                -p 3000:8088 \
 				#-p 3000:3000 \
                                 ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
                         """
